@@ -1,0 +1,37 @@
+# Bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env files (contains API keys!)
+.env
+*.env
+
+# Onshape config (contains API keys!)
+.onpy/
+config.json
+
+# Test artifacts
+/tmp/
