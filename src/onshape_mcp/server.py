@@ -658,15 +658,16 @@ HELP = {
 
 async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Route tool calls to the appropriate method."""
-    client = get_client()
+    # Make the local reference available before an account is configured. This
+    # lets users diagnose units and workflow without triggering auth.
+    if name == "onshape_help":
+        topic = arguments.get("topic", "units")
+        text = HELP.get(topic, HELP["units"])
+        return [TextContent(type="text", text=text)]
 
     try:
-        if name == "onshape_help":
-            topic = arguments.get("topic", "units")
-            text = HELP.get(topic, HELP["units"])
-            return [TextContent(type="text", text=text)]
-
-        elif name == "list_documents":
+        client = get_client()
+        if name == "list_documents":
             docs = client.list_documents(
                 query=arguments.get("query", ""),
                 limit=arguments.get("limit", 20),
@@ -868,21 +869,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
 def main():
     """Entry point for the MCP server."""
-    global _client
     logger.info("Starting Onshape MCP server")
-
-    # Verify auth works at startup
-    try:
-        client = get_client()
-        # Quick auth check — list one document
-        client.list_documents(limit=1)
-        logger.info("Onshape auth verified successfully")
-    except Exception as e:
-        logger.error(f"Onshape auth failed: {e}")
-        print(f"⚠️  Onshape auth failed: {e}", file=sys.stderr)
-        print("   Check ONSHAPE_DEV_ACCESS/ONSHAPE_DEV_SECRET env vars", file=sys.stderr)
-        # Reset client so future get_client() calls will retry auth
-        _client = None
 
     async def _run():
         async with stdio_server() as (read_stream, write_stream):

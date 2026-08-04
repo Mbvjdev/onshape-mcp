@@ -1,167 +1,161 @@
-# Getting Started: Onshape CAD via AI
+# Getting started: Hermes Agent + Onshape
 
-This guide gets you from zero to "AI, make me a bracket with four bolt holes" in ~5 minutes.
+This guide creates a clean, local setup. It keeps your Onshape credentials out of Git and gives Hermes a local MCP server with 18 CAD tools.
 
-## What You'll Need
+## What you need
 
-- **Python 3.12+** with pip
-- **Onshape account** (free works) + [API keys](https://dev-portal.onshape.com/)
-- **Hermes Agent** (or any MCP-compatible client like Claude Desktop)
+- A current [Hermes Agent installation](https://hermes-agent.nousresearch.com/docs)
+- Python **3.12 or newer**
+- An Onshape account and an API key pair from the [Onshape Developer Portal](https://dev-portal.onshape.com/)
+- Git
 
-## Step 1: Install Hermes Agent
+The server works with other MCP clients too, but this guide uses Hermes.
 
-[Hermes Agent](https://github.com/NousResearch/hermes-agent) is an AI agent framework with built-in MCP support. It connects LLMs (Claude, DeepSeek, GPT) to tools like this Onshape server.
+## 1. Clone and install the server
 
-```bash
-# Install Hermes Agent
-pip install hermes-agent
+Choose a directory you control. The examples below use `~/onshape-mcp`.
 
-# Or clone for the latest version:
-git clone https://github.com/NousResearch/hermes-agent.git
-cd hermes-agent
-pip install -e .
-```
-
-Configure your LLM provider. Hermes works with OpenAI, Anthropic, DeepSeek, OpenRouter, and local models (Ollama, llama.cpp). Example:
-
-```bash
-# Set up API keys in ~/.hermes/.env
-echo 'ANTHROPIC_API_KEY=sk-ant-...' >> ~/.hermes/.env
-echo 'OPENAI_API_KEY=sk-...' >> ~/.hermes/.env
-
-# Or use Hermes' built-in model catalog
-hermes model list
-hermes model set claude-sonnet-4
-```
-
-## Step 2: Get Onshape API Keys
-
-1. Go to [dev-portal.onshape.com](https://dev-portal.onshape.com/)
-2. Sign in with your Onshape account
-3. Create a new API key pair
-4. Store them:
-
-```bash
-# In ~/.hermes/.env
-echo 'ONSHAPE_DEV_ACCESS=your_access_key_here' >> ~/.hermes/.env
-echo 'ONSHAPE_DEV_SECRET=your_secret_key_here' >> ~/.hermes/.env
-```
-
-> **Note:** Dev keys work with free Onshape accounts for reading and creating documents.
-
-## Step 3: Install onshape-mcp
+### macOS or Linux
 
 ```bash
 git clone https://github.com/Mbvjdev/onshape-mcp.git ~/onshape-mcp
 cd ~/onshape-mcp
-pip install -e .
+python3.12 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/python -m pip install -e ".[dev]"
 ```
 
-You'll also need the `onpy` library for feature creation:
+### Windows PowerShell
+
+```powershell
+git clone https://github.com/Mbvjdev/onshape-mcp.git $HOME\onshape-mcp
+cd $HOME\onshape-mcp
+py -3.12 -m venv .venv
+.\.venv\Scripts\python -m pip install --upgrade pip
+.\.venv\Scripts\python -m pip install -e ".[dev]"
+```
+
+Using a project-specific virtual environment is intentional. It prevents an unrelated Python installation or `PYTHONPATH` from supplying incompatible MCP packages.
+
+## 2. Create an Onshape API key pair
+
+1. Sign in at the [Onshape Developer Portal](https://dev-portal.onshape.com/).
+2. Create an API key pair with the access required for the documents you intend to use.
+3. Keep the access key and secret key private. Treat the secret like a password.
+
+Open Hermes' secrets file — **not a file inside this repository** — and add the two values:
+
+```dotenv
+# ~/.hermes/.env
+ONSHAPE_DEV_ACCESS=replace-with-your-access-key
+ONSHAPE_DEV_SECRET=replace-with-your-secret-key
+```
+
+[` .env.example`](.env.example) contains exactly the two variable names with empty values. Do not copy your populated secrets back into the clone, do not commit them, and do not paste them in issues or chat.
+
+> The server also supports `ONSHAPE_ACCESS_KEY` / `ONSHAPE_SECRET_KEY` and an existing `~/.onpy/config.json`, but the `ONSHAPE_DEV_*` pair above is the recommended Hermes setup.
+
+## 3. Configure Hermes
+
+Open your Hermes config:
 
 ```bash
-pip install onpy
+hermes config edit
 ```
 
-## Step 4: Configure Hermes
+Merge one of the example entries under your existing top-level `mcp_servers:` key. Do not replace other MCP servers you already use.
 
-Add the Onshape MCP server to `~/.hermes/config.yaml`:
+- macOS/Linux: [`examples/hermes-config.macos-linux.yaml`](examples/hermes-config.macos-linux.yaml)
+- Windows: [`examples/hermes-config.windows.yaml`](examples/hermes-config.windows.yaml)
+
+For example, on macOS/Linux, if you cloned to `~/onshape-mcp`:
 
 ```yaml
 mcp_servers:
   onshape:
-    command: "python"
-    args: ["-m", "onshape_mcp.server"]
+    command: "${HOME}/onshape-mcp/.venv/bin/onshape-mcp"
     env:
       ONSHAPE_DEV_ACCESS: "${ONSHAPE_DEV_ACCESS}"
       ONSHAPE_DEV_SECRET: "${ONSHAPE_DEV_SECRET}"
-      PYTHONPATH: "/Users/you/onshape-mcp/src"    # adjust path!
     timeout: 180
+    connect_timeout: 60
 ```
 
-The `${VAR}` syntax makes Hermes resolve environment variables from `~/.hermes/.env`.
+The `${VAR}` references are expanded by Hermes when it connects. That means the literal config is safe to keep in `~/.hermes/config.yaml` or share as an example: the private values stay in `~/.hermes/.env`.
 
-> **Alternative:** Use Claude Desktop or any MCP client. Add to `claude_desktop_config.json`:
-> ```json
-> {
->   "mcpServers": {
->     "onshape": {
->       "command": "python",
->       "args": ["-m", "onshape_mcp.server"],
->       "env": {
->         "ONSHAPE_DEV_ACCESS": "your_key",
->         "ONSHAPE_DEV_SECRET": "your_secret",
->         "PYTHONPATH": "/path/to/onshape-mcp/src"
->       }
->     }
->   }
-> }
-> ```
+## 4. Verify transport and credentials
 
-## Step 5: Restart & Verify
-
-Restart Hermes so it discovers the MCP server:
+First verify that Hermes can launch and discover the MCP server:
 
 ```bash
-hermes --new
-# or if you're in TUI mode: /new
+hermes mcp test onshape
+hermes mcp list
 ```
 
-Check the tools are loaded:
+Then start a **new Hermes session** (or use `/reload-mcp` in an interactive Hermes session) and send this read-only prompt:
 
-```
-# In Hermes:
-What Onshape tools do you have available?
-```
-
-You should see 18 tools: `mcp_onshape_list_documents`, `mcp_onshape_create_sketch`, `mcp_onshape_extrude`, etc.
-
-## Step 6: Your First CAD Command
-
-Try something simple:
-
-```
-List my Onshape documents
+```text
+List my three most recently modified Onshape documents. Do not modify anything.
 ```
 
-If that works, try:
+A successful document listing proves both the MCP connection and your Onshape authentication.
 
+## 5. Make a first model
+
+Once read-only access works, use a fresh test document rather than an important production design:
+
+```text
+Create an Onshape document named "Onshape MCP smoke test". Inspect its elements to find Part Studio 1. Create a sketch named "Base" on the TOP plane, add a circle centered at the origin with a 50 mm radius, and extrude it 10 mm as a new body. Then list the parts and tell me what was created. Use the MCP tools and convert all dimensions to their meter values before calling them.
 ```
-Create a new document called "AI Test". Then make a Part Studio 
-with a sketch on the TOP plane. Add a circle centered at (0,0) 
-with radius 0.05 (which is 100mm diameter). Extrude it 10mm as 
-a new body. Export the STL to /tmp/test.stl.
+
+This creates a 100 mm diameter, 10 mm thick test disc. You can inspect the result in Onshape and delete the document when you are finished.
+
+More ready-to-use prompts are in [`examples/first-prompts.md`](examples/first-prompts.md).
+
+## Troubleshooting
+
+### `hermes mcp test onshape` cannot launch the server
+
+- Verify the `command:` path points to the `onshape-mcp` executable inside this clone's `.venv`.
+- Re-run the installation command with the `.venv` Python, not a global `pip`.
+- On Windows, use the Windows config fragment; the executable normally ends in `.exe`.
+- Run `hermes mcp list` to see whether Hermes has the expected server entry.
+
+### Hermes sees the tools, but `list_documents` says keys are missing or authentication fails
+
+- Confirm both `ONSHAPE_DEV_ACCESS` and `ONSHAPE_DEV_SECRET` are present in `~/.hermes/.env` with no surrounding quotes, whitespace, or placeholder text.
+- Confirm the two names appear under `mcp_servers.onshape.env` in `config.yaml` as `${...}` references.
+- Create a new Hermes session after changing credentials.
+- Generate a new key pair in the Onshape Developer Portal if the existing pair was revoked or copied incorrectly.
+
+### Requests return `429` or CAD operations seem slow
+
+Onshape limits API traffic at the account level. The server intentionally spaces requests, caches reads, and backs off after `429`. Let it recover; do not repeatedly restart or retry the same large operation.
+
+Each line in a sketch is an API operation. A rectangle uses four connected lines, and complex profiles are best made in small batches or completed in the Onshape UI.
+
+### A sketch cannot be found after a new conversation
+
+The current `onpy` integration keeps live sketch objects in the MCP server session. Create a new sketch and populate it within the same Hermes conversation; use `list_features` to inspect older sketches rather than trying to reopen them for edits.
+
+### A revolve finishes but no body appears
+
+The profile must be closed, non-self-intersecting, and strictly on one side of the revolve axis. For a default Z-axis revolve, keep every profile point at `X > 0`.
+
+## Updating
+
+```bash
+cd ~/onshape-mcp
+git pull
+./.venv/bin/python -m pip install -e ".[dev]"
+./.venv/bin/python -m pytest tests/ -q
 ```
 
-## Common Issues
+Restart Hermes or reload MCP servers after an update. Review the Git diff before updating a local tool that can access your CAD account.
 
-### "Onshape auth failed" at startup
-- Check your API keys in `~/.hermes/.env`
-- Dev keys from the Onshape developer portal are different from your account password
-- Try deleting `~/.onpy/config.json` if it has stale keys
+## Next steps
 
-### Rate limited (429 errors)
-- The server handles this automatically with backoff
-- Wait 2-3 minutes, rate limits reset
-- The server limits itself to 10 calls/minute to avoid throttling
-
-### "Sketch not found in session cache"
-- Sketches must be created with `create_sketch` in the same session
-- You can't reconnect to a sketch created in a previous conversation
-- Create a fresh sketch and work from there
-
-### Tools don't appear
-- Make sure `mcp_servers.onshape` is in `config.yaml` (not `mcp` or `servers`)
-- Check Hermes startup logs: `hermes logs`
-- Verify `pip install onpy` succeeded
-- The PYTHONPATH must point to the `src` directory inside onshape-mcp
-
-## Next Steps
-
-- **Read the [Tools reference](README.md#tools-18)** for all 18 tools
-- **Check [CONTRIBUTING.md](CONTRIBUTING.md)** if you want to add features
-- **File issues** at [github.com/Mbvjdev/onshape-mcp](https://github.com/Mbvjdev/onshape-mcp)
-
----
-
-Built with [Hermes Agent](https://github.com/NousResearch/hermes-agent) and [onpy](https://github.com/onshape-public/onpy).
+- Browse the available capabilities with `hermes mcp configure onshape`.
+- Use `onshape_help` for built-in reminders about units, planes, operations, rate limits, and pitfalls.
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) before extending the server.
+- Review [SECURITY.md](SECURITY.md) if you believe a key or vulnerability was exposed.

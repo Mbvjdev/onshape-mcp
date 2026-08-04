@@ -1,237 +1,85 @@
 # onshape-mcp
 
-MCP server for Onshape CAD — semantic tools wrapping the Onshape REST API with rate limiting, caching, and auth handling. Designed for AI assistants (Claude, DeepSeek, GPT) to do real CAD work.
+[![CI](https://github.com/Mbvjdev/onshape-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Mbvjdev/onshape-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**What:** 18 tools that translate "make a Ø175mm disc with four Ø12mm bolt holes" → API calls, without you thinking about btTypes, transient IDs, or rate limits.
+A local [Model Context Protocol](https://modelcontextprotocol.io/) server that gives [Hermes Agent](https://hermes-agent.nousresearch.com/docs) practical, rate-limited tools for creating and inspecting Onshape CAD.
 
-**Status:** v0.2 — sketches, extrudes, revolves, fillets, chamfers, parts, features, STL export, and thumbnails all work. 28 tests. MIT license.
+It turns model requests such as “create a 100 mm disc with a 30 mm center hole” into semantic CAD operations, while handling Onshape API authentication, rate limiting, caching, FeatureScript operations, and the gnarly parts of the REST API.
 
-## Why This Exists
+> This repository contains **no API keys, personal Hermes configuration, or Onshape documents**. Credentials stay in each user's local `~/.hermes/.env` file and are passed only to this MCP subprocess.
 
-Onshape has a REST API. AI assistants have tool-calling. Connecting them should be simple:
+## Start here
 
-> "Hey Claude, make a bracket with four M6 clearance holes on a 50mm PCD."
+**[Read the complete Hermes + Onshape setup guide.](GETTING_STARTED.md)** It covers a clean Python environment, Onshape developer keys, secure Hermes configuration, verification, and a first CAD prompt.
 
-But the raw Onshape API makes this surprisingly hard:
-
-| Problem | Raw API Reality |
-|---------|----------------|
-| **17 API calls** for a bolt pattern | `create sketch` → `FeatureScript preflight` → `POST feature` → repeat for each circle → `FeatureScript for face IDs` → `POST extrude` |
-| **btType hell** | Every feature POST needs the exact btType string (`BTMSketch-151`, `BTMFeature-134`, `BTMParameterEnum-145`...) — one typo and the Part Studio is corrupted |
-| **Transient ID dance** | Extrude-cut requires face IDs only available via FeatureScript evaluation — a two-step dance of POST → parse → POST |
-| **Rate limits hit fast** | Onshape throttles at ~10 calls/minute at the account level. onpy's internal calls (FeatureScript preflight + feature POST per operation) burn through quota invisibly |
-| **Units in meters** | Everything is meters. Send `5` instead of `0.005` and you get a 5-meter part |
-| **Silent failures** | Revolve returns HTTP 200 but creates no body if the profile crosses the axis. No error. No warning. Just nothing. |
-
-**This server fixes all of that.** It wraps the Onshape API in 18 semantic tools that are designed for AI reasoning — not API wrangling. Claude doesn't need to know what a `BTMIndividualQuery-138` is. It just needs `add_circle(center=(0,0.05), radius=0.004)`.
-
-The same pattern as Fusion's MCP connector (Anthropic × Autodesk), but for Onshape. Built from months of real-world CAD work through the API.
-
-→ **[Getting Started Guide](GETTING_STARTED.md)** — 5 minutes to CAD via AI
-
-## How It Works
-
-```
-User: "Make a 100mm disc with a 30mm center hole"
-  ↓
-Claude/DeepSeek (reasoning)
-  ↓
-MCP tools (semantic layer)
-  ↓
-onshape-mcp server (rate limiting, caching, auth)
-  ↓
-onpy (feature creation) + REST (reads, exports, thumbnails)
-  ↓
-Onshape API
-```
-
-## Installation
+The short version:
 
 ```bash
+# Python 3.12+
 git clone https://github.com/Mbvjdev/onshape-mcp.git
 cd onshape-mcp
-pip install -e .
+python3.12 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/python -m pip install -e ".[dev]"
 ```
 
-Dependencies:
-- `mcp` — MCP Python SDK (stdio server)
-- `httpx` — HTTP client for REST calls
-- `cachetools` — TTL cache
-- `onpy` — Onshape Python library (for feature creation, handles btTypes correctly)
-
-## Auth
-
-The server reads Onshape API keys in this order:
-
-1. `ONSHAPE_DEV_ACCESS` + `ONSHAPE_DEV_SECRET` env vars
-2. `ONSHAPE_ACCESS_KEY` + `ONSHAPE_SECRET_KEY` env vars
-3. `~/.onpy/config.json`
-
-[Get API keys from Onshape's developer portal](https://dev-portal.onshape.com/).
-
-## Usage
-
-### With Hermes Agent (recommended)
-
-Add to `~/.hermes/config.yaml`:
-
-```yaml
-mcp_servers:
-  onshape:
-    command: "/path/to/venv/bin/python"
-    args: ["-m", "onshape_mcp.server"]
-    env:
-      ONSHAPE_DEV_ACCESS: "${ONSHAPE_DEV_ACCESS}"
-      ONSHAPE_DEV_SECRET: "${ONSHAPE_DEV_SECRET}"
-      PYTHONPATH: "/path/to/onshape-mcp/src"
-    timeout: 180
-```
-
-Restart Hermes. Tools appear as `mcp_onshape_*`.
-
-Full setup guide: **[GETTING_STARTED.md](GETTING_STARTED.md)**
-
-### Standalone (any MCP client)
+Then add the two Onshape key values to `~/.hermes/.env`, copy the appropriate fragment from [`examples/`](examples/), and run:
 
 ```bash
-PYTHONPATH=src python -m onshape_mcp.server
+hermes mcp test onshape
 ```
 
-Add to any MCP client's config (Claude Desktop, Cursor, etc.):
+## What Hermes gets
 
-```json
-{
-  "mcpServers": {
-    "onshape": {
-      "command": "python",
-      "args": ["-m", "onshape_mcp.server"],
-      "env": {
-        "ONSHAPE_DEV_ACCESS": "your_access_key",
-        "ONSHAPE_DEV_SECRET": "your_secret_key",
-        "PYTHONPATH": "/path/to/onshape-mcp/src"
-      }
-    }
-  }
-}
-```
+| Area | Tools |
+| --- | --- |
+| Documents | Search/list, create, and inspect documents and Part Studios |
+| Parts and features | Inspect parts, feature trees, and individual features; delete features in dependency-safe order |
+| Sketching | Create sketches on standard planes; add circles, lines, and rectangles |
+| 3D operations | Extrude, revolve, fillet, and chamfer |
+| Output | Export STL files and retrieve shaded thumbnails |
+| Guidance | In-tool help for units, planes, operations, rate limits, and common pitfalls |
 
-## Tools (18)
+All dimensional tool inputs use **meters**, because that is Onshape's API unit. `10 mm` is `0.01`, and a `100 mm` diameter circle has a radius of `0.05`.
 
-### Documents
-| Tool | Description |
-|------|-------------|
-| `list_documents` | Search/list documents. Returns name, ID, owner. |
-| `create_document` | Create new document. Returns doc ID + workspace ID. |
-| `get_document_info` | Document details: workspace, elements (Part Studios). |
+## Why an MCP layer?
 
-### Parts & Features
-| Tool | Description |
-|------|-------------|
-| `list_parts` | List all parts in a Part Studio: name, type, material, mass. |
-| `list_features` | List all features with types and suppression status. |
-| `get_feature_info` | Details about a specific feature. |
-| `delete_feature` | Delete a feature (⚠️ children before parents). |
+The raw Onshape API is powerful but unfriendly for agents:
 
-### Sketching
-| Tool | Description |
-|------|-------------|
-| `create_sketch` | Create sketch on TOP/FRONT/RIGHT plane, optionally with offset. |
-| `add_circle` | Add circle: center (x,y) + radius. ALL in METERS. |
-| `add_line` | Add line: start → end point. |
-| `add_rectangle` | Add rectangle: two opposite corners. |
+- Feature POST payloads rely on internal `btType` values and transient IDs.
+- `onpy` may perform extra HTTP calls internally, so naive clients hit account-level rate limits very quickly.
+- Some operations use FeatureScript because their REST variants are fragile.
+- A malformed feature request can leave a Part Studio in a bad state.
 
-### 3D Operations
-| Tool | Description |
-|------|-------------|
-| `extrude` | Extrude sketch → 3D body. Operations: NEW, ADD, REMOVE. |
-| `revolve` | Revolve sketch around axis via FeatureScript. For round parts. |
-| `fillet` | Round edges of a feature. Radius in meters. |
-| `chamfer` | Bevel edges of a feature. Distance in meters. |
+`onshape-mcp` exposes a smaller, CAD-oriented interface and applies a shared conservative rate limiter, read cache, backoff after `429`, and credential handling that also works for `onpy` feature creation.
 
-### Export
-| Tool | Description |
-|------|-------------|
-| `export_stl` | Export Part Studio as STL (mm/cm/m/inch/foot). |
-| `get_thumbnail` | Get shaded 3D view as PNG — "see" the model. |
+## Security model
 
-### Help
-| Tool | Description |
-|------|-------------|
-| `onshape_help` | Quick reference: units, planes, operations, rate limits, pitfalls. |
+- The recommended configuration references `${ONSHAPE_DEV_ACCESS}` and `${ONSHAPE_DEV_SECRET}`. Hermes resolves those at runtime from `~/.hermes/.env`; the actual values never belong in `config.yaml` or this repository.
+- Hermes intentionally filters the environment given to local MCP servers. The example config explicitly passes only the two Onshape values needed by this server.
+- Do not put credentials in shell commands, chat logs, issues, commits, screenshots, or copied configuration fragments.
+- If a key is committed by mistake, revoke it in Onshape first. Removing a line in a later commit does **not** remove it from Git history.
 
-## Units
+See [SECURITY.md](SECURITY.md) for reporting and incident guidance.
 
-**EVERYTHING is in METERS.** This is Onshape's native unit.
+## Known operating constraints
 
-```
-1 mm = 0.001 m
-1 cm = 0.01 m
-1 m  = 1.0 m
-```
-
-Quick reference:
-- Ø10mm hole → `radius=0.005`
-- 50mm offset from TOP → `offset=0.05`
-- 76mm extrude → `distance=0.076`
-- Ø175mm circle → `radius=0.0875`
-
-## Rate Limiting
-
-Handled automatically:
-- **Sliding window:** Max 10 calls per 60 seconds (conservative, avoids throttle)
-- **Minimum interval:** 2 seconds between calls
-- **Exponential backoff:** On 429: 5s → 10s → 20s → ... max 120s
-- **Cache:** GET responses cached 30-120 seconds (type-dependent)
-- **Pre-acquire:** onpy operations pre-reserve rate limit tokens
-
-If calls take a while: the rate limiter is pacing things. Be patient.
-
-## Project Structure
-
-```
-onshape-mcp/
-├── pyproject.toml
-├── README.md
-├── GETTING_STARTED.md       ← 5-minute setup guide
-├── CONTRIBUTING.md          ← how to contribute
-├── pytest.ini
-├── .github/workflows/       ← CI
-├── src/onshape_mcp/
-│   ├── __init__.py
-│   ├── server.py            ← MCP server (stdio, 18 tools)
-│   ├── client.py            ← OnshapeClient (REST + onpy wrapper)
-│   ├── rate_limiter.py      ← Global singleton, sliding window + backoff
-│   └── cache.py             ← TTL cache (30s-5min)
-└── tests/
-    ├── conftest.py          ← Mock HTTP, fixtures
-    ├── test_client.py       ← 9 tests (mocked API)
-    ├── test_server.py       ← 8 tests (tool routing)
-    ├── test_rate_limiter.py ← 6 tests (delay, backoff, singleton)
-    └── test_cache.py        ← 5 tests (set/get, TTL, invalidate)
-```
+- Onshape rate limits are account-wide. The server deliberately trades speed for reliability; large line-based sketches can take time.
+- Sketch objects are session-scoped in the current `onpy` integration. Create and populate a sketch in the same Hermes conversation.
+- `add_rectangle` creates four connected lines because `onpy` does not provide a native rectangle method.
+- Revolve profiles must be closed, must not cross the axis, and must not self-intersect. Onshape can otherwise return success without creating a body.
+- Complex subtract operations may be better completed manually in the Onshape UI.
 
 ## Development
 
 ```bash
-# Run tests (no API calls needed — fully mocked)
-pytest tests/ -v
-
-# Test imports
-python -c "from onshape_mcp.client import OnshapeClient; print('OK')"
-
-# Run MCP server manually (for debugging)
-python -m onshape_mcp.server
+# The test suite is fully mocked: no API calls and no Onshape credentials.
+./.venv/bin/python -m pytest tests/ -v
 ```
 
-## Known Limitations
-
-- **Revolve silent failures:** Profile MUST NOT cross the revolve axis. Includes `validate_revolve_profile()` to catch this before calling the API.
-- **Extrude REMOVE:** Uses REST + FeatureScript. Can fail on complex geometry.
-- **Sketch polygons:** Each `add_line` = 1+ API call. 10+ lines trigger rate limits.
-- **Part Studio corruption:** A malformed REST POST can corrupt a Part Studio. The server uses onpy to prevent this.
-- **Document deletion:** Onshape doesn't allow permanent deletion via API (403). Use UI.
-- **Session-only sketches:** Sketches must be created in the same session.
+Contributions are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) first. Every new operation needs mocked tests and must respect the shared rate limiter.
 
 ## License
 
-MIT
+[MIT](LICENSE).

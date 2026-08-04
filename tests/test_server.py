@@ -84,7 +84,6 @@ def test_handle_call_tool_error_path():
 
 
 def test_handle_call_tool_onshape_help():
-    fake_client = MagicMock()
-    with patch.object(srv, "get_client", return_value=fake_client):
+    with patch.object(srv, "get_client", side_effect=AssertionError("help must not authenticate")):
         out = asyncio.run(srv.handle_call_tool("onshape_help", {"topic": "units"}))
     assert "METERS" in out[0].text

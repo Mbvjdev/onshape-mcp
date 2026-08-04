@@ -94,7 +94,35 @@ def test_create_sketch_calls_onpy(mock_client):
         )
     assert result["sketch_id"] == "FID_sketch_new"
     assert result["plane"] == "TOP"
+    expected_onpy_kwargs = {
+        "units": "metric",
+        "onshape_access_token": mock_client.access_key,
+        "onshape_secret_token": mock_client.secret_key,
+    }
+    fake_client_cls.assert_called_once_with(**expected_onpy_kwargs)
     fake_sketch_cls.assert_called_once()
+
+
+def test_add_rectangle_draws_four_connected_lines(mock_client):
+    """onpy has no add_rectangle, so the adapter must use four lines."""
+    sketch = MagicMock()
+    mock_client._sketch_cache[("did", "eid", "sketch")] = (sketch, MagicMock())
+
+    result = mock_client.add_rectangle(
+        "did", "wid", "eid", "sketch",
+        corner1_x=0.0,
+        corner1_y=0.0,
+        corner2_x=0.04,
+        corner2_y=0.02,
+    )
+
+    assert result["added"] == "rectangle"
+    assert sketch.add_line.call_args_list == [
+        (((0.0, 0.0), (0.04, 0.0)),),
+        (((0.04, 0.0), (0.04, 0.02)),),
+        (((0.04, 0.02), (0.0, 0.02)),),
+        (((0.0, 0.02), (0.0, 0.0)),),
+    ]
 
 
 # ── Revolve (FeatureScript) ─────────────────────────────────────────

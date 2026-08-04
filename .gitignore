@@ -1,37 +1,39 @@
-# Bytecode
+# Python build and virtual environments
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.egg-info/
-dist/
 build/
-
-# Virtual environments
-venv/
+dist/
 .venv/
+venv/
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Testing
+# Tests and coverage
 .pytest_cache/
 .coverage
 htmlcov/
 
-# OS
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
 .DS_Store
 Thumbs.db
 
-# Env files (contains API keys!)
+# Credentials and local configuration
 .env
-*.env
-
-# Onshape config (contains API keys!)
+.env.*
+!.env.example
 .onpy/
-config.json
+*.pem
+*.p12
+*.pfx
+*.key
+id_rsa
+id_ed25519
 
-# Test artifacts
+# Local exports and temporary artifacts
 /tmp/
+*.stl
+*.step
+*.stp

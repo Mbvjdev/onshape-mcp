@@ -85,6 +85,11 @@ class OnshapeClient:
 
     def __init__(self):
         access_key, secret_key = _load_auth()
+        # onpy does not read ONSHAPE_* environment variables itself. Keep the
+        # pair so feature creation uses the same credentials as the REST layer
+        # and never prompts interactively inside an MCP stdio subprocess.
+        self.access_key = access_key
+        self.secret_key = secret_key
         self.auth = base64.b64encode(
             f"{access_key}:{secret_key}".encode()
         ).decode()
@@ -107,6 +112,14 @@ class OnshapeClient:
         """
         for _ in range(n):
             self.rate_limiter.acquire()
+
+    def _new_onpy_client(self, client_class):
+        """Create a metric onpy client using the MCP server's credentials."""
+        return client_class(
+            units="metric",
+            onshape_access_token=self.access_key,
+            onshape_secret_token=self.secret_key,
+        )
 
     # ── low-level HTTP ────────────────────────────────────────────
 
@@ -254,8 +267,9 @@ class OnshapeClient:
         Returns: {id, name, default_workspace_id}
         """
         from onpy.client import Client
-        self._pre_acquire(3)  # onpy: POST /documents + get workspace + elements → 3 API calls
-        client = Client(units="metric")
+        # Constructor validation + document creation + workspace/elements.
+        self._pre_acquire(4)
+        client = self._new_onpy_client(Client)
         doc = client.create_document(name)
         # Invalidate document cache
         self.cache.invalidate()
@@ -385,10 +399,7 @@ class OnshapeClient:
 
             return Client, PartStudio, DefaultPlane, DefaultPlaneOrientation, OffsetPlane, Sketch
         except ImportError:
-            raise RuntimeError(
-                "onpy not available. Install it in the venv: "
-                "pip install onpy (or use ~/dev/onshape-venv/)"
-            )
+            raise RuntimeError("onpy is missing from the server environment. Reinstall onshape-mcp.")
 
     def create_sketch(
         self,
@@ -412,8 +423,9 @@ class OnshapeClient:
         Client, PartStudio, DefaultPlane, DefaultPlaneOrientation, OffsetPlane, Sketch = \
             self._get_onpy_client()
 
-        self._pre_acquire(3)  # onpy: get_document(1) + FeatureScript(1) + feature POST(1)
-        client = Client(units="metric")
+        # Constructor + document fetch + FeatureScript preflight + feature POST.
+        self._pre_acquire(4)
+        client = self._new_onpy_client(Client)
         doc = client.get_document(did)
         # Find the element
         ps = None
@@ -536,11 +548,21 @@ class OnshapeClient:
         corner2_x: float,
         corner2_y: float,
     ) -> dict:
-        """Add a rectangle to an existing sketch. Corner points in METERS."""
+        """Add a closed, axis-aligned rectangle. Corner points are in METERS.
+
+        onpy v0.0.7 does not provide ``Sketch.add_rectangle``, so this adapter
+        creates four connected lines rather than failing at runtime.
+        """
         sketch, ps = self._resolve_sketch(did, wid, eid, sketch_id)
-        self._pre_acquire(1)  # onpy sketch.add_rectangle = 1 API call
-        # onpy add_rectangle takes two corner points
-        sketch.add_rectangle((corner1_x, corner1_y), (corner2_x, corner2_y))
+        self._pre_acquire(4)
+        corners = (
+            (corner1_x, corner1_y),
+            (corner2_x, corner1_y),
+            (corner2_x, corner2_y),
+            (corner1_x, corner2_y),
+        )
+        for start, end in zip(corners, (*corners[1:], corners[0])):
+            sketch.add_line(start, end)
         self.cache.invalidate_document(did)
         return {
             "added": "rectangle",
@@ -577,8 +599,9 @@ class OnshapeClient:
         from onpy.elements.partstudio import PartStudio
         from onpy.features.extrude import Extrude
 
-        self._pre_acquire(3)  # onpy: get_document(1) + FeatureScript(1) + feature POST(1)
-        client = Client(units="metric")
+        # Constructor + document fetch + FeatureScript preflight + feature POST.
+        self._pre_acquire(4)
+        client = self._new_onpy_client(Client)
         doc = client.get_document(did)
         ps = None
         for el in doc.elements:

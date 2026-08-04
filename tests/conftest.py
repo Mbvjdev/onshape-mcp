@@ -10,8 +10,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Make sure auth doesn't fail at OnshapeClient import time
-os.environ.setdefault("ONSHAPE_DEV_ACCESS", "test_access_key")
-os.environ.setdefault("ONSHAPE_DEV_SECRET", "test_secret_key")
+# Intentionally short, fixed dummy values. They are never sent to Onshape.
+os.environ.setdefault("ONSHAPE_DEV_ACCESS", "unit-test")
+os.environ.setdefault("ONSHAPE_DEV_SECRET", "unit-test")
 
 from onshape_mcp import rate_limiter as rl_mod
 from onshape_mcp.client import OnshapeClient

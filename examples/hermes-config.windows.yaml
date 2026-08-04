@@ -1,0 +1,10 @@
+# Merge this entry under the existing `mcp_servers:` key in ~/.hermes/config.yaml.
+# Replace the example command path with your own absolute clone path.
+mcp_servers:
+  onshape:
+    command: 'C:\Users\YOUR_USER\onshape-mcp\.venv\Scripts\onshape-mcp.exe'
+    env:
+      ONSHAPE_DEV_ACCESS: "${ONSHAPE_DEV_ACCESS}"
+      ONSHAPE_DEV_SECRET: "${ONSHAPE_DEV_SECRET}"
+    timeout: 180
+    connect_timeout: 60
