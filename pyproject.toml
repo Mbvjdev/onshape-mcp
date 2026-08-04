@@ -7,7 +7,8 @@ dependencies = [
     "mcp>=1.27,<2",
     "httpx>=0.27,<1",
     "cachetools>=5.4,<7",
-    "onpy>=0.0.7,<0.1",
+    # onpy's feature API is tightly coupled to this adapter; update deliberately with tests.
+    "onpy==0.0.7",
 ]
 
 [project.urls]
