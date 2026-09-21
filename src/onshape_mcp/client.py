@@ -238,6 +238,29 @@ class OnshapeClient:
                 time.sleep(2 ** attempt)
                 continue
 
+            # Any other 4xx is a real failure and must never fall through as data. Onshape reports
+            # an unauthenticated request as {"message": "Unauthenticated API request", "status": 401}
+            # — which carries no "error" key — so returning the body makes a dead credential look
+            # like an empty account (list_documents then reports zero documents).
+            if resp.status_code >= 400:
+                detail = ""
+                try:
+                    body = resp.json()
+                    if isinstance(body, dict):
+                        detail = str(body.get("message") or body.get("error") or "")
+                except Exception:
+                    pass
+                if not detail:
+                    detail = (getattr(resp, "text", "") or "").strip()[:200]
+                # A response that is not a 429 proves the rate limit is not what is failing, so
+                # clear the consecutive-429 streak before raising — the same state a success
+                # would leave. Without this, a 401 sitting between two 429s leaves the earlier
+                # ones looking consecutive and the next 429 backs off far longer than it should.
+                self.rate_limiter.report_success()
+                raise RuntimeError(
+                    f"Onshape API {resp.status_code} on {method} {url}: {detail or 'request failed'}"
+                )
+
             self.rate_limiter.report_success()
 
             if raw_response:

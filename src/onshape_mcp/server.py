@@ -932,9 +932,14 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
-    except Exception as e:
+    except Exception:
+        # Report the failure as a failure. Returning the message as ordinary content made the
+        # SDK mark the call successful (isError=false on the wire), so a client that gates on
+        # isError still read our 401 as a successful, empty list_documents. The SDK's
+        # CallToolRequest handler converts a raised exception from this handler into
+        # CallToolResult(isError=True); the traceback still reaches stderr via logger.exception.
         logger.exception(f"Tool {name} failed")
-        return [TextContent(type="text", text=f"Error: {e}")]
+        raise
 
 
 # ── Server Setup ────────────────────────────────────────────────

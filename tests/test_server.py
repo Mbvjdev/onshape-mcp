@@ -5,6 +5,8 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from mcp.shared.memory import create_connected_server_and_client_session
+
 from onshape_mcp import server as srv
 
 
@@ -76,11 +78,53 @@ def test_handle_call_tool_unknown():
 
 
 def test_handle_call_tool_error_path():
+    """A failing tool must propagate the failure, not return it as content.
+
+    Returning the message as ordinary content made the SDK mark the call as a success
+    (isError=false). test_failed_tool_call_is_error_true_over_the_wire asserts the
+    client-visible half of this contract.
+    """
     fake_client = MagicMock()
     fake_client.list_documents.side_effect = RuntimeError("boom")
     with patch.object(srv, "get_client", return_value=fake_client):
-        out = asyncio.run(srv.handle_call_tool("list_documents", {}))
-    assert "Error" in out[0].text and "boom" in out[0].text
+        with pytest.raises(RuntimeError, match="boom"):
+            asyncio.run(srv.handle_call_tool("list_documents", {}))
+
+
+async def test_failed_tool_call_is_error_true_over_the_wire():
+    """The client-visible contract: a failing tool call comes back isError=true.
+
+    Driven through the server's own registered CallToolRequest handler over the
+    in-memory transport, so this asserts what an MCP client actually receives — not
+    just the return value of handle_call_tool().
+    """
+    fake_client = MagicMock()
+    fake_client.list_documents.side_effect = RuntimeError("boom")
+    with patch.object(srv, "get_client", return_value=fake_client):
+        async with create_connected_server_and_client_session(srv.app) as session:
+            result = await session.call_tool("list_documents", {})
+    assert result.isError is True
+    assert "boom" in result.content[0].text
+
+
+async def test_successful_tool_call_is_not_an_error_over_the_wire():
+    """The same path must still report ordinary successes as successes."""
+    fake_client = MagicMock()
+    fake_client.list_documents.return_value = [{"id": "X", "name": "Doc"}]
+    with patch.object(srv, "get_client", return_value=fake_client):
+        async with create_connected_server_and_client_session(srv.app) as session:
+            result = await session.call_tool("list_documents", {})
+    assert result.isError is False
+    assert "Doc" in result.content[0].text
+
+
+async def test_onshape_help_is_not_an_error_without_credentials():
+    """onshape_help is answered before the client is built — it must stay a success."""
+    with patch.object(srv, "get_client", side_effect=AssertionError("help must not authenticate")):
+        async with create_connected_server_and_client_session(srv.app) as session:
+            result = await session.call_tool("onshape_help", {"topic": "units"})
+    assert result.isError is False
+    assert "METERS" in result.content[0].text
 
 
 def test_handle_call_tool_onshape_help():

@@ -149,6 +149,15 @@ class MockResponse:
             raise ValueError("No JSON body")
         return self._json
 
+    @property
+    def text(self):
+        """httpx.Response exposes .text; error paths fall back to it for non-JSON bodies."""
+        if self._json is not None:
+            return json.dumps(self._json)
+        if isinstance(self.content, bytes):
+            return self.content.decode("utf-8", "replace")
+        return self.content or ""
+
 
 class MockHttp:
     """Mock httpx.Client. Routes by (METHOD, url-path-suffix) to a queue.

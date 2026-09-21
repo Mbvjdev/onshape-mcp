@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 
 from tests.conftest import MockResponse
 
+import onshape_mcp.client as client_mod
+
 
 # ── Documents ───────────────────────────────────────────────────────
 
@@ -302,3 +304,98 @@ def test_cache_hit(mock_client, mock_http, sample_documents):
     # Only one underlying HTTP call thanks to the cache
     gets = [c for c in mock_http.calls if c[0] == "GET"]
     assert len(gets) == 1
+
+
+# ── Non-429 4xx must raise, never be returned as data ───────────────
+
+def test_401_raises_instead_of_reporting_an_empty_account(mock_client, mock_http):
+    """Onshape's unauthenticated body has no "error" key.
+
+    Real response body for a missing/wrong/expired key:
+        HTTP 401 {"message": "Unauthenticated API request", "status": 401}
+    Before this guard the body was returned as the payload and list_documents
+    reported zero documents, making a dead credential look like an empty account.
+    """
+    mock_http.set_route(
+        "GET",
+        "/documents",
+        MockResponse(401, json_data={"message": "Unauthenticated API request", "status": 401}),
+    )
+    with pytest.raises(RuntimeError) as excinfo:
+        mock_client.list_documents()
+    message = str(excinfo.value)
+    assert "401" in message
+    assert "Unauthenticated API request" in message
+
+
+def test_403_raises_with_message_or_error_detail(mock_client, mock_http):
+    mock_http.set_route(
+        "GET",
+        "/documents/did_forbidden",
+        MockResponse(403, json_data={"message": "No permission to access document"}),
+    )
+    with pytest.raises(RuntimeError) as excinfo:
+        mock_client.get_document_info("did_forbidden")
+    assert "403" in str(excinfo.value)
+    assert "No permission to access document" in str(excinfo.value)
+
+
+def test_404_raises_and_falls_back_to_the_response_text(mock_client, mock_http):
+    """A 404 body is not always JSON — the message must still be readable."""
+    mock_http.set_route(
+        "GET",
+        "/documents/did_missing",
+        MockResponse(404, content=b"Document not found"),
+    )
+    with pytest.raises(RuntimeError) as excinfo:
+        mock_client.get_document_info("did_missing")
+    assert "404" in str(excinfo.value)
+    assert "Document not found" in str(excinfo.value)
+
+
+def test_4xx_is_not_retried(mock_client, mock_http):
+    """4xx other than 429 is a final answer — no retry, no extra API calls."""
+    mock_http.set_route(
+        "GET",
+        "/documents",
+        MockResponse(401, json_data={"message": "Unauthenticated API request", "status": 401}),
+    )
+    with pytest.raises(RuntimeError):
+        mock_client.list_documents()
+    gets = [c for c in mock_http.calls if c[0] == "GET"]
+    assert len(gets) == 1
+
+
+def test_5xx_is_still_retried_then_succeeds(mock_client, mock_http, monkeypatch):
+    """5xx retry behaviour must be unchanged by the 4xx guard, and must not sleep for real —
+    the 2**attempt backoff in _request would otherwise stall the suite (and make CI timing
+    flaky)."""
+    monkeypatch.setattr(client_mod.time, "sleep", lambda *_: None)
+    mock_http.set_route(
+        "GET",
+        "/documents",
+        [
+            MockResponse(503, json_data={}),
+            MockResponse(200, json_data={"items": []}),
+        ],
+    )
+    assert mock_client.list_documents() == []
+    gets = [c for c in mock_http.calls if c[0] == "GET"]
+    assert len(gets) == 2
+
+
+def test_non_429_4xx_clears_the_429_streak(mock_client, mock_http):
+    """A non-429 response proves rate limiting is not what failed, so the consecutive-429
+    streak resets even though the call raises. A 401 sitting between two 429s must not leave
+    the earlier 429s looking consecutive — that is what makes the next backoff escalate."""
+    mock_http.set_route(
+        "GET",
+        "/documents",
+        [
+            MockResponse(429, json_data={}, headers={"Retry-After": "0"}),
+            MockResponse(401, json_data={"message": "Unauthenticated API request", "status": 401}),
+        ],
+    )
+    with pytest.raises(RuntimeError):
+        mock_client.list_documents()
+    assert mock_client.rate_limiter._consecutive_429s == 0
