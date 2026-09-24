@@ -399,3 +399,38 @@ def test_non_429_4xx_clears_the_429_streak(mock_client, mock_http):
     with pytest.raises(RuntimeError):
         mock_client.list_documents()
     assert mock_client.rate_limiter._consecutive_429s == 0
+
+
+def test_api_key_eligibility_error_carries_the_workaround(mock_client, mock_http):
+    """Onshape's key-creation eligibility refusal must surface the 2-key-cap workaround,
+    not a bare "try again later" that invites a futile retry loop."""
+    mock_http.set_route(
+        "GET",
+        "/documents",
+        MockResponse(
+            403,
+            json_data={
+                "message": "Failed to create API Key. Your account is not currently "
+                "eligible to create API keys. Try again later.",
+                "status": 403,
+            },
+        ),
+    )
+    with pytest.raises(RuntimeError) as excinfo:
+        mock_client.list_documents()
+    message = str(excinfo.value)
+    assert "not currently eligible" in message
+    assert "capped at 2 active API keys" in message
+    assert "cad.onshape.com/user/developer/apiKeys" in message
+
+
+def test_4xx_without_eligibility_message_keeps_plain_error(mock_client, mock_http):
+    """The eligibility branch must not swallow ordinary 4xx errors."""
+    mock_http.set_route(
+        "GET",
+        "/documents",
+        MockResponse(403, json_data={"message": "No permission to access document"}),
+    )
+    with pytest.raises(RuntimeError) as excinfo:
+        mock_client.list_documents()
+    assert "capped at 2 active API keys" not in str(excinfo.value)

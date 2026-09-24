@@ -633,7 +633,7 @@ TOOLS = [
             "properties": {
                 "topic": {
                     "type": "string",
-                    "enum": ["units", "planes", "operations", "rate_limits", "pitfalls"],
+                    "enum": ["units", "planes", "operations", "rate_limits", "pitfalls", "api_keys"],
                     "description": "Help topic",
                 },
             },
@@ -707,8 +707,25 @@ HELP = {
         "5. CLOSED POLYGONS: Sketches must form closed regions for extrusion.\n"
         "6. RATE LIMITS: Account-wide. Switching API keys doesn't give more quota.\n"
         "7. PART STUDIO CORRUPTION: A bad raw REST POST can corrupt a Part Studio.\n"
-        "   Recovery requires a fresh document. Let the MCP server handle feature creation.\n\n"
+        "   Recovery requires a fresh document. Let the MCP server handle feature creation.\n"
+        "8. API KEY CREATION: 'Your account is not currently eligible to create API keys'\n"
+        "   means the individual-account cap of 2 active keys is reached. Reuse an\n"
+        "   existing key (see topic 'api_keys'), don't retry creating one.\n\n"
         "See the full onshape skill for detailed workarounds and recipes."
+    ),
+    "api_keys": (
+        "Onshape API key facts and the eligibility error workaround:\n\n"
+        "Individual accounts are capped at 2 ACTIVE API keys.\n"
+        "Company/Classroom/Enterprise accounts are not capped.\n\n"
+        "\"Failed to create API Key. Your account is not currently eligible to create API keys.\n"
+        "Try again later.\" means the 2-key cap is hit, not that you must wait.\n\n"
+        "Workaround:\n"
+        "  1. Open https://cad.onshape.com/user/developer/apiKeys\n"
+        "  2. Reuse one of the existing key pairs, or delete an unused one first\n"
+        "  3. Configure ONSHAPE_DEV_ACCESS / ONSHAPE_DEV_SECRET with the surviving pair\n"
+        "  4. Deleting a key in active use will break the MCP server until the\n"
+        "     remaining key is configured — do it the other way around.\n\n"
+        "Keys never go in config.yaml, git, or chat — only ~/.hermes/.env."
     ),
 }
 

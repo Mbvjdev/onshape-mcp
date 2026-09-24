@@ -257,6 +257,18 @@ class OnshapeClient:
                 # would leave. Without this, a 401 sitting between two 429s leaves the earlier
                 # ones looking consecutive and the next 429 backs off far longer than it should.
                 self.rate_limiter.report_success()
+                # Onshape refuses to mint new keys once an individual account already has its
+                # maximum of two active API keys ("Your account is not currently eligible to
+                # create API keys"). The same message can surface on API calls made with a
+                # credential affected by that state, so attach the workaround instead of a
+                # bare "try again later" that invites a futile retry loop.
+                if "not currently eligible to create API keys" in detail:
+                    raise RuntimeError(
+                        f"Onshape API {resp.status_code} on {method} {url}: {detail}\n"
+                        "Workaround: individual Onshape accounts are capped at 2 active API keys. "
+                        "Manage (and if needed delete an unused one at) https://cad.onshape.com/user/developer/apiKeys, "
+                        "then reuse an existing key pair — do NOT retry creating a new one."
+                    )
                 raise RuntimeError(
                     f"Onshape API {resp.status_code} on {method} {url}: {detail or 'request failed'}"
                 )

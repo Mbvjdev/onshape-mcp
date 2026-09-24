@@ -171,3 +171,21 @@ def test_handle_call_tool_build_component_routes():
         did="d", wid="w", eid="e", script="function(context is Context, id) {}"
     )
     assert "created_bodies" in out[0].text
+
+
+def test_handle_call_tool_onshape_help_api_keys_topic():
+    """The api_keys help topic must explain the 2-key cap workaround without credentials."""
+    with patch.object(srv, "get_client", side_effect=AssertionError("help must not authenticate")):
+        out = asyncio.run(srv.handle_call_tool("onshape_help", {"topic": "api_keys"}))
+    text = out[0].text
+    assert "2 ACTIVE API keys" in text
+    assert "cad.onshape.com/user/developer/apiKeys" in text
+    assert "not currently eligible" in text
+
+
+async def test_onshape_help_api_keys_over_the_wire():
+    with patch.object(srv, "get_client", side_effect=AssertionError("help must not authenticate")):
+        async with create_connected_server_and_client_session(srv.app) as session:
+            result = await session.call_tool("onshape_help", {"topic": "api_keys"})
+    assert result.isError is False
+    assert "2 ACTIVE API keys" in result.content[0].text
